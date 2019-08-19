@@ -1,9 +1,12 @@
+from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
-import datetime
+
+FIGURE_WIDTH = 12
+FIGURE_HEIGHT = 12
 
 
-def parse_pomodoro(line):
+def parse_pomodoro_line(line):
     date = line[1]
     date = date[1:]
 
@@ -15,10 +18,10 @@ def parse_pomodoro(line):
 
 
 def run():
-    filename = "tasks.org"
+    filename = "tasks-example.org"
 
     with open(filename, "r") as file:
-        min_date = datetime.datetime.now().date()
+        min_date = datetime.now().date()
         max_date = 0
         terms = dict()
         current_term_name = (
@@ -30,11 +33,11 @@ def run():
             line = file_line.split()
 
             if "*" in line[0]:
-                if len(line[0]) is 1:  # term
+                if len(line[0]) == 1:  # term
                     current_term_name = line[1]
                     terms[current_term_name] = {}
 
-                if len(line[0]) is 2:  # course
+                if len(line[0]) == 2:  # course
                     current_course_name = " ".join(line[1:])
                     terms[current_term_name].update({current_course_name: {}})
 
@@ -42,7 +45,7 @@ def run():
                 #    task_name = " ".join(line[1:])
 
             if line[0] == "CLOCK:":  # pomodoro line
-                date, seconds = parse_pomodoro(line)
+                date, seconds = parse_pomodoro_line(line)
                 if date < str(min_date):
                     min_date = date
                 if date > str(max_date):
@@ -57,53 +60,68 @@ def run():
                         {date: seconds}
                     )
 
-    # process data into pandas
+    plot_all_courses(terms)
+
+
+def plot_all_courses(terms):
     for term, courses in terms.items():
         plot_courses(courses, term)
 
 
 def plot_courses(courses, term):
-    df = create_dataframe(courses)
-    df2 = create_total_minutes_dataframe(df)
+    daily_activity_df = create_dataframe(courses)
+    cumulative_activity_df = create_total_minutes_dataframe(daily_activity_df)
 
     # create array of subplots and figure
     fig, axes = plt.subplots(nrows=2, ncols=1)
 
-    plot_total_minutes(axes, df2, term)
-    plot_daily_activity(axes, df, term)
+    plot_cumulative_activity(axes, cumulative_activity_df, term)
+    plot_daily_activity(axes, daily_activity_df, term)
 
     # display plots
     fig.savefig(term)  # to file
-    # plt.show()          # on screen
+    plt.show()  # on screen
 
 
 def plot_daily_activity(axes, df, term):
     daily_activity_plot = df.plot.bar(
-        ax=axes[1], title=term, figsize=(12, 12), rot=90, stacked=True
+        ax=axes[1],
+        title=term,
+        figsize=(FIGURE_WIDTH, FIGURE_HEIGHT),
+        rot=90,
+        stacked=True,
     )
     daily_activity_plot.set_ylabel("Hours")
-    # remove timestamp from x-axis of daily_activity_plot
-    f = lambda x: datetime.datetime.strptime(x, "%Y-%m-%d %H:%M:%S").strftime(
-        "%b-%d"
-    )
-    daily_activity_plot.set_xticklabels(
-        [f(x.get_text()) for x in daily_activity_plot.get_xticklabels()],
-        visible=False,
-    )
+
+    xticklabels = [
+        remove_timestamp(label) for label in daily_activity_plot.get_xticklabels()
+    ]
+
+    daily_activity_plot.set_xticklabels(xticklabels, visible=False)
+
     # display every 7th tick label, to match area plot format
     for tick in daily_activity_plot.xaxis.get_ticklabels()[::2]:
         tick.set_visible(True)
-    # plot the average time spent per day
+
     daily_activity_plot.axhline(
-        df.values.sum() / len(df.index), color="b", alpha=0.2, ls="dashed"
+        average_time_per_day(df), color="b", alpha=0.2, ls="dashed"
     )
     # adjust horizontal space between subplots
     plt.subplots_adjust(hspace=0.3)
 
 
-def plot_total_minutes(axes, df2, term):
-    # plot total minutes ax
-    total_minutes_plot = df2.plot.area(ax=axes[0], title=term, figsize=(12, 12))
+def remove_timestamp(label):
+    return datetime.strptime(label.get_text(), "%Y-%m-%d %H:%M:%S").strftime("%b-%d")
+
+
+def average_time_per_day(dataframe):
+    return dataframe.values.sum() / len(dataframe.index)
+
+
+def plot_cumulative_activity(axes, df2, term):
+    total_minutes_plot = df2.plot.area(
+        ax=axes[0], title=term, figsize=(FIGURE_WIDTH, FIGURE_HEIGHT)
+    )
     total_minutes_plot.set_ylabel("Total Hours")
     total_minutes_plot.set_xlim(
         df2.index.min(), df2.index.max()
@@ -125,9 +143,7 @@ def create_total_minutes_dataframe(df):
 def create_dataframe(courses):
     """ Create and sanitize DataFrame structure """
 
-    df = pd.DataFrame.from_dict(
-        courses
-    )  # populate dataframe with courses dictionary
+    df = pd.DataFrame.from_dict(courses)  # populate dataframe with courses dictionary
     df = df.fillna(0)  # fills 'NaN' with zeros
     df.index = pd.DatetimeIndex(df.index)  # prevents index from being overwritten
     df = df.reindex(
